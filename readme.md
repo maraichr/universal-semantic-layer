@@ -351,7 +351,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ## Security
 
-Security is a top priority. Please see our [Security Policy](SECURITY.md) for:
+Security is a top priority. Please see our [Security Policy](docs/security.md) for:
 
 - Reporting security vulnerabilities
 - Security best practices
