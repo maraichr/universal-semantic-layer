@@ -326,8 +326,8 @@ See the [deployment guide](docs/deployment.md) for detailed instructions.
 Comprehensive documentation is available in the `docs/` folder:
 
 - **[Technical Architecture](docs/architecture.md)**: Detailed technical architecture document
-- **[API Reference](docs/api/)**: Complete API documentation
-- **[User Guides](docs/user-guides/)**: End-user documentation
+- **[API Reference](docs/api/api.md)**: API Reference documentation
+- **[User Guides](docs/user-guides/user-guide.md)**: End-user reference documentation
 - **[Deployment Guide](docs/deployment.md)**: Deployment instructions
 - **[Security Guide](docs/security.md)**: Security configuration and best practices
 
