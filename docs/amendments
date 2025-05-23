@@ -1,0 +1,596 @@
+## 1. **Architecture.md Modifications**
+
+### Replace Section 3.2.2 Authentication Service with:
+
+```markdown
+#### 3.2.2 Authentication Service
+- **Identity Provider**: Keycloak (local dev) / Auth0, Okta, Azure AD (production)
+- **Authentication Methods**: 
+  - OAuth 2.0 / OpenID Connect (primary)
+  - SAML 2.0 (enterprise SSO)
+  - API keys (service accounts)
+- **Token Management**: JWT tokens issued by IdP
+- **User Federation**: LDAP/AD integration via Keycloak
+- **MFA Support**: Delegated to identity provider
+```
+
+### Update Technology Stack (Section 9):
+
+```markdown
+### 9.1 Backend Technologies
+- **Programming Languages**: Java/Kotlin, Python
+- **Frameworks**: Spring Boot, FastAPI
+- **Database**: PostgreSQL
+- **Caching**: Redis
+- **Search**: Elasticsearch
+- **Message Broker**: Apache Kafka
+- **API Gateway**: Kong (local dev and production)
+- **Identity Provider**: Keycloak (local dev), Auth0/Okta/Azure AD (production)
+```
+
+## 2. **README.md Modifications**
+
+### Update Prerequisites Section:
+
+```markdown
+### Prerequisites
+
+- **Development Environment**:
+  - WSL2 with Ubuntu 20.04 or 22.04
+  - Docker Desktop for Windows with WSL2 backend enabled
+  - Cursor IDE configured for WSL2 development
+  - Node.js 18+ and npm/yarn
+  - Java 17+ and Maven/Gradle
+  - Python 3.9+
+  - kubectl and helm (for Kubernetes deployments)
+
+- **Local Development Services**:
+  - Docker and Docker Compose
+  - Keycloak 22+ (via Docker)
+  - Kong Gateway 3.4+ (via Docker)
+  - PostgreSQL 13+
+  - Redis 6+
+```
+
+### Add WSL2 Setup Section:
+
+```markdown
+### WSL2 Development Setup
+
+```bash
+# Update WSL2 Ubuntu
+sudo apt update && sudo apt upgrade -y
+
+# Install required dependencies
+sudo apt install -y build-essential curl git docker.io docker-compose
+
+# Install Java 17
+sudo apt install -y openjdk-17-jdk maven
+
+# Install Node.js via nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+source ~/.bashrc
+nvm install 18
+nvm use 18
+
+# Configure Docker for WSL2
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Install kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# Install Helm
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+```
+```
+
+### Update Docker Compose Configuration:
+
+```markdown
+### Quick Start with Docker
+
+Create `docker-compose.yml` for local development:
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: semantic_layer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+    command: start-dev
+    ports:
+      - "8180:8080"
+    depends_on:
+      - postgres
+
+  kong:
+    image: kong:3.4-alpine
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: postgres
+      KONG_PG_USER: postgres
+      KONG_PG_PASSWORD: postgres
+      KONG_PG_DATABASE: kong
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    depends_on:
+      - postgres
+      - kong-migration
+
+  kong-migration:
+    image: kong:3.4-alpine
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: postgres
+      KONG_PG_USER: postgres
+      KONG_PG_PASSWORD: postgres
+      KONG_PG_DATABASE: kong
+    command: kong migrations bootstrap
+    depends_on:
+      - postgres
+
+  semantic-layer:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/semantic_layer
+      REDIS_URL: redis://redis:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: semantic-layer
+      KEYCLOAK_CLIENT_ID: semantic-layer-backend
+      KONG_ADMIN_URL: http://kong:8001
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+      - keycloak
+      - kong
+
+volumes:
+  postgres_data:
+  redis_data:
+```
+```
+
+## 3. **Security_guide.md Modifications**
+
+### Replace Authentication Section with:
+
+```markdown
+## Authentication
+
+### Identity Provider Integration
+
+The Universal Semantic Layer delegates authentication to external identity providers, eliminating the need to manage user credentials directly.
+
+#### Keycloak Configuration (Development)
+
+```yaml
+# keycloak-realm-config.json
+{
+  "realm": "semantic-layer",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "semantic-layer-backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:8080/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "publicClient": false,
+      "secret": "${KEYCLOAK_CLIENT_SECRET}"
+    },
+    {
+      "clientId": "semantic-layer-frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "publicClient": true
+    }
+  ],
+  "roles": {
+    "realm": [
+      {"name": "admin"},
+      {"name": "data_steward"},
+      {"name": "analyst"},
+      {"name": "viewer"}
+    ]
+  }
+}
+```
+
+#### Spring Security Configuration with Keycloak
+
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    
+    @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
+    private String issuerUri;
+    
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(authorize -> authorize
+                .requestMatchers("/api/v1/public/**").permitAll()
+                .requestMatchers("/api/v1/admin/**").hasRole("admin")
+                .anyRequest().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .jwtAuthenticationConverter(jwtAuthenticationConverter())
+                )
+            );
+        return http.build();
+    }
+    
+    @Bean
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
+        grantedAuthoritiesConverter.setAuthoritiesClaimName("realm_access.roles");
+        grantedAuthoritiesConverter.setAuthorityPrefix("ROLE_");
+        
+        JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
+        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(grantedAuthoritiesConverter);
+        return jwtAuthenticationConverter;
+    }
+}
+```
+
+#### Production Identity Providers
+
+For production environments, consider these enterprise identity providers:
+
+1. **Auth0**
+   - Universal login
+   - Social identity providers
+   - Enterprise connections (AD, SAML)
+   - Advanced MFA options
+
+2. **Okta**
+   - Enterprise SSO
+   - Lifecycle management
+   - Advanced security policies
+   - API access management
+
+3. **Azure Active Directory**
+   - Native Microsoft integration
+   - Conditional access policies
+   - B2B and B2C scenarios
+   - Seamless Office 365 integration
+```
+
+## 4. **Deployment_guide.md Modifications**
+
+### Add Local Development with WSL2 Section:
+
+```markdown
+## Local Development with WSL2
+
+### WSL2 Configuration
+
+```bash
+# Set WSL2 memory and CPU limits
+# Create or edit ~/.wslconfig in Windows
+[wsl2]
+memory=8GB
+processors=4
+swap=2GB
+
+# Set Docker Desktop resources
+# Configure in Docker Desktop > Settings > Resources > WSL Integration
+```
+
+### Cursor IDE Setup for WSL2
+
+```bash
+# Install Cursor in Windows and enable WSL2 extension
+# Open project in WSL2
+cd /home/username/projects/semantic-layer
+cursor .
+
+# Configure Cursor settings for WSL2
+{
+  "remote.WSL.fileWatcher.polling": true,
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/node_modules/**": true
+  }
+}
+```
+
+### Kong API Gateway Configuration
+
+```lua
+-- kong.conf
+database = postgres
+pg_host = postgres
+pg_port = 5432
+pg_user = kong
+pg_password = kong
+pg_database = kong
+
+admin_listen = 0.0.0.0:8001
+proxy_listen = 0.0.0.0:8000
+
+plugins = bundled,oidc
+```
+
+### Kong Routes and Services Setup
+
+```bash
+# Create service for semantic layer API
+curl -i -X POST http://localhost:8001/services \
+  --data name=semantic-layer-api \
+  --data url=http://semantic-layer:8080
+
+# Create route
+curl -i -X POST http://localhost:8001/services/semantic-layer-api/routes \
+  --data paths[]=/api/v1 \
+  --data strip_path=false
+
+# Enable OIDC plugin for Keycloak integration
+curl -i -X POST http://localhost:8001/services/semantic-layer-api/plugins \
+  --data name=oidc \
+  --data config.issuer=http://keycloak:8080/realms/semantic-layer \
+  --data config.client_id=kong \
+  --data config.client_secret=kong-secret \
+  --data config.redirect_uri=http://localhost:8000/api/v1/callback
+```
+```
+
+## 5. **API_reference.md Modifications**
+
+### Update Authentication Section:
+
+```markdown
+## Authentication
+
+The API uses OAuth 2.0 / OpenID Connect for authentication, delegated to an external identity provider.
+
+### Obtaining Access Tokens
+
+#### Development (Keycloak)
+```bash
+# Get token using Resource Owner Password Credentials (dev only)
+curl -X POST http://localhost:8180/realms/semantic-layer/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=semantic-layer-frontend" \
+  -d "username=user@example.com" \
+  -d "password=password"
+
+# Response
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expires_in": 300,
+  "refresh_expires_in": 1800,
+  "token_type": "Bearer"
+}
+```
+
+#### Production (Auth0/Okta)
+```bash
+# Use authorization code flow with PKCE
+# Redirect user to:
+https://your-domain.auth0.com/authorize?
+  response_type=code&
+  client_id=YOUR_CLIENT_ID&
+  redirect_uri=https://your-app.com/callback&
+  scope=openid%20profile%20email&
+  code_challenge=GENERATED_CODE_CHALLENGE&
+  code_challenge_method=S256
+
+# Exchange code for token
+curl -X POST https://your-domain.auth0.com/oauth/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "grant_type": "authorization_code",
+    "client_id": "YOUR_CLIENT_ID",
+    "code": "AUTHORIZATION_CODE",
+    "redirect_uri": "https://your-app.com/callback",
+    "code_verifier": "CODE_VERIFIER"
+  }'
+```
+
+### Using Tokens with Kong Gateway
+
+```bash
+# All API requests go through Kong Gateway
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8000/api/v1/models
+```
+```
+
+## 6. **Add New Document: local-dev-setup.md**
+
+Create a new document specifically for local development:
+
+```markdown
+# Local Development Setup Guide for WSL2
+
+## Prerequisites
+
+1. **Windows 11 or Windows 10 (version 2004+)**
+2. **WSL2 enabled with Ubuntu 20.04/22.04**
+3. **Docker Desktop with WSL2 backend**
+4. **Cursor IDE**
+
+## Initial WSL2 Setup
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install development tools
+sudo apt install -y \
+  build-essential \
+  curl \
+  git \
+  wget \
+  unzip \
+  software-properties-common
+
+# Configure Git
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
+```
+
+## Development Environment Setup
+
+### 1. Clone Repository
+
+```bash
+cd ~
+mkdir -p projects
+cd projects
+git clone https://github.com/your-org/semantic-layer.git
+cd semantic-layer
+```
+
+### 2. Install Development Dependencies
+
+```bash
+# Run setup script
+./scripts/setup-dev-env.sh
+```
+
+### 3. Configure Cursor for WSL2
+
+1. Install Cursor on Windows
+2. Install WSL extension in Cursor
+3. Open project: `cursor .` from WSL2 terminal
+4. Configure workspace settings
+
+### 4. Start Local Services
+
+```bash
+# Start all services
+docker-compose up -d
+
+# Wait for services to be ready
+./scripts/wait-for-services.sh
+
+# Initialize Keycloak
+./scripts/init-keycloak.sh
+
+# Configure Kong
+./scripts/configure-kong.sh
+```
+
+### 5. Verify Setup
+
+```bash
+# Check service health
+curl http://localhost:8000/health
+curl http://localhost:8180/health
+curl http://localhost:8001/status
+
+# Run tests
+./scripts/run-tests.sh
+```
+
+## Common Issues and Solutions
+
+### Docker Performance in WSL2
+
+```bash
+# Add to ~/.bashrc
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
+# Configure Docker Desktop
+# Settings > Resources > WSL Integration > Enable for your distro
+```
+
+### Port Conflicts
+
+```bash
+# Check for port usage
+sudo lsof -i :8080
+sudo lsof -i :8000
+sudo lsof -i :8180
+
+# Kill process if needed
+sudo kill -9 <PID>
+```
+
+### Keycloak SSL Issues
+
+```bash
+# For local development, disable SSL verification
+export NODE_TLS_REJECT_UNAUTHORIZED=0
+```
+
+## Development Workflow
+
+1. **Start services**: `docker-compose up -d`
+2. **Open Cursor**: `cursor .` in project root
+3. **Start backend**: `./mvnw spring-boot:run`
+4. **Start frontend**: `cd frontend && npm start`
+5. **Access application**: http://localhost:3000
+
+## Useful Commands
+
+```bash
+# View logs
+docker-compose logs -f keycloak
+docker-compose logs -f kong
+
+# Reset everything
+docker-compose down -v
+./scripts/clean-dev-env.sh
+
+# Update dependencies
+./scripts/update-dependencies.sh
+```
+```
+
+These modifications provide:
+
+1. **Clear integration with third-party identity providers** instead of custom authentication
+2. **Specific WSL2 and Cursor IDE setup instructions**
+3. **Kong API Gateway configuration** for local development
+4. **Keycloak setup** as the local identity provider
+5. **Updated examples** using the new authentication flow
+6. **Production-ready identity provider options** (Auth0, Okta, Azure AD)
+7. **Simplified security architecture** by delegating authentication
+
+This approach follows modern best practices by:
+- Not reinventing authentication
+- Using industry-standard protocols (OAuth 2.0/OIDC)
+- Providing a consistent development experience on WSL2
+- Making the system more maintainable and secure
