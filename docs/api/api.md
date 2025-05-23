@@ -13,47 +13,60 @@ Development: http://localhost:8080/api/v1
 
 ## Authentication
 
-All API endpoints require authentication using JWT tokens or API keys.
+The API uses OAuth 2.0 / OpenID Connect for authentication, delegated to an external identity provider.
 
-### Authentication Methods
+### Obtaining Access Tokens
 
-#### JWT Token Authentication
+#### Development (Keycloak)
 ```bash
-# Login to get token
-POST /auth/login
-Content-Type: application/json
-
-{
-  "username": "user@example.com",
-  "password": "your_password"
-}
+# Get token using Resource Owner Password Credentials (dev only)
+curl -X POST http://localhost:8180/realms/semantic-layer/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=semantic-layer-frontend" \
+  -d "username=user@example.com" \
+  -d "password=password"
 
 # Response
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "expires_in": 3600,
+  "expires_in": 300,
+  "refresh_expires_in": 1800,
   "token_type": "Bearer"
 }
-
-# Use token in requests
-Authorization: Bearer <access_token>
 ```
 
-#### API Key Authentication
+#### Production (Auth0/Okta)
 ```bash
-# Use API key in header
-X-API-Key: your_api_key
+# Use authorization code flow with PKCE
+# Redirect user to:
+https://your-domain.auth0.com/authorize?\
+response_type=code&\
+client_id=YOUR_CLIENT_ID&\
+redirect_uri=https://your-app.com/callback&\
+scope=openid%20profile%20email&\
+code_challenge=GENERATED_CODE_CHALLENGE&\
+code_challenge_method=S256
+
+# Exchange code for token
+curl -X POST https://your-domain.auth0.com/oauth/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "grant_type": "authorization_code",
+    "client_id": "YOUR_CLIENT_ID",
+    "code": "AUTHORIZATION_CODE",
+    "redirect_uri": "https://your-app.com/callback",
+    "code_verifier": "CODE_VERIFIER"
+  }'
 ```
 
-### Token Refresh
-```bash
-POST /auth/refresh
-Content-Type: application/json
+### Using Tokens with Kong Gateway
 
-{
-  "refresh_token": "your_refresh_token"
-}
+```bash
+# All API requests go through Kong Gateway
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8000/api/v1/models
 ```
 
 ## Data Sources API

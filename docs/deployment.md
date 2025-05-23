@@ -142,6 +142,72 @@ LOG_LEVEL=info
 
 ---
 
+## Local Development with WSL2
+
+### WSL2 Configuration
+
+```bash
+# Set WSL2 memory and CPU limits
+# Create or edit ~/.wslconfig in Windows
+[wsl2]
+memory=8GB
+processors=4
+swap=2GB
+
+# Set Docker Desktop resources
+# Configure in Docker Desktop > Settings > Resources > WSL Integration
+```
+
+### Cursor IDE Setup for WSL2
+
+```bash
+# Install Cursor in Windows and enable WSL2 extension
+# Open project in WSL2
+cd /home/username/projects/semantic-layer
+cursor .
+
+# Configure Cursor settings for WSL2
+{
+  "remote.WSL.fileWatcher.polling": true,
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/node_modules/**": true
+  }
+}
+```
+
+### Kong API Gateway Configuration
+
+```lua
+-- kong.conf
+database = postgres
+pg_host = postgres
+pg_port = 5432
+pg_user = kong
+pg_password = kong
+pg_database = kong
+
+admin_listen = 0.0.0.0:8001
+proxy_listen = 0.0.0.0:8000
+
+plugins = bundled,oidc
+```
+
+### Kong Routes and Services Setup
+
+```bash
+# Create service for semantic layer API
+curl -i -X POST http://localhost:8001/services       --data name=semantic-layer-api       --data url=http://semantic-layer:8080
+
+# Create route
+curl -i -X POST http://localhost:8001/services/semantic-layer-api/routes       --data paths[]=/api/v1       --data strip_path=false
+
+# Enable OIDC plugin for Keycloak integration
+curl -i -X POST http://localhost:8001/services/semantic-layer-api/plugins       --data name=oidc       --data config.issuer=http://keycloak:8080/realms/semantic-layer       --data config.client_id=kong       --data config.client_secret=kong-secret       --data config.redirect_uri=http://localhost:8000/api/v1/callback
+```
+
+---
+
 ## Docker Deployment
 
 ### Single Container Setup
