@@ -138,15 +138,14 @@ The Universal Semantic Layer Application follows a modern, modular architecture 
   - CORS support
 
 #### 3.2.2 Authentication Service
-- **Authentication Methods**: 
-  - Username/password
-  - OAuth 2.0
-  - SAML
-  - OpenID Connect
-  - API keys
-- **Token Management**: JWT issuance and validation
-- **MFA Support**: Time-based one-time passwords (TOTP)
-- **SSO Integration**: Support for enterprise SSO solutions
+- **Identity Provider**: Keycloak (local dev) / Auth0, Okta, Azure AD (production)
+- **Authentication Methods**:
+  - OAuth 2.0 / OpenID Connect (primary)
+  - SAML 2.0 (enterprise SSO)
+  - API keys (service accounts)
+- **Token Management**: JWT tokens issued by IdP
+- **User Federation**: LDAP/AD integration via Keycloak
+- **MFA Support**: Delegated to identity provider
 
 ### 3.3 Application Layer
 
@@ -687,7 +686,8 @@ The Universal Semantic Layer Application follows a modern, modular architecture 
 - **Caching**: Redis
 - **Search**: Elasticsearch
 - **Message Broker**: Apache Kafka
-- **API Gateway**: Kong or custom implementation
+- **API Gateway**: Kong (local dev and production)
+- **Identity Provider**: Keycloak (local dev), Auth0/Okta/Azure AD (production)
 
 ### 9.2 Frontend Technologies
 

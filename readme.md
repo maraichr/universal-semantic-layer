@@ -105,18 +105,143 @@ The Universal Semantic Layer Application provides a robust abstraction layer bet
 
 ### Prerequisites
 
-- **Development**:
+- **Development Environment**:
+  - WSL2 with Ubuntu 20.04 or 22.04
+  - Docker Desktop for Windows with WSL2 backend enabled
+  - Cursor IDE configured for WSL2 development
   - Node.js 18+ and npm/yarn
   - Java 17+ and Maven/Gradle
   - Python 3.9+
-  - Docker and Docker Compose
+  - kubectl and helm (for Kubernetes deployments)
 
-- **Production**:
-  - Kubernetes cluster or Docker Swarm
+- **Local Development Services**:
+  - Docker and Docker Compose
+  - Keycloak 22+ (via Docker)
+  - Kong Gateway 3.4+ (via Docker)
   - PostgreSQL 13+
   - Redis 6+
 
+### WSL2 Development Setup
+
+```bash
+# Update WSL2 Ubuntu
+sudo apt update && sudo apt upgrade -y
+
+# Install required dependencies
+sudo apt install -y build-essential curl git docker.io docker-compose
+
+# Install Java 17
+sudo apt install -y openjdk-17-jdk maven
+
+# Install Node.js via nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+source ~/.bashrc
+nvm install 18
+nvm use 18
+
+# Configure Docker for WSL2
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Install kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# Install Helm
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+```
+
 ### Quick Start with Docker
+
+Create `docker-compose.yml` for local development:
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: semantic_layer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+    command: start-dev
+    ports:
+      - "8180:8080"
+    depends_on:
+      - postgres
+
+  kong:
+    image: kong:3.4-alpine
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: postgres
+      KONG_PG_USER: postgres
+      KONG_PG_PASSWORD: postgres
+      KONG_PG_DATABASE: kong
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    depends_on:
+      - postgres
+      - kong-migration
+
+  kong-migration:
+    image: kong:3.4-alpine
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: postgres
+      KONG_PG_USER: postgres
+      KONG_PG_PASSWORD: postgres
+      KONG_PG_DATABASE: kong
+    command: kong migrations bootstrap
+    depends_on:
+      - postgres
+
+  semantic-layer:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/semantic_layer
+      REDIS_URL: redis://redis:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: semantic-layer
+      KEYCLOAK_CLIENT_ID: semantic-layer-backend
+      KONG_ADMIN_URL: http://kong:8001
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+      - keycloak
+      - kong
+
+volumes:
+  postgres_data:
+  redis_data:
+```
 
 ```bash
 # Clone the repository
@@ -127,7 +252,10 @@ cd universal-semantic-layer
 docker-compose up -d
 
 # Access the application
-open http://localhost:3000
+# UI: http://localhost:3000 (or other port defined in frontend)
+# Backend API: http://localhost:8080
+# Keycloak Admin: http://localhost:8180
+# Kong Admin API: http://localhost:8001
 ```
 
 ### Manual Installation

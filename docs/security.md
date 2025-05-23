@@ -71,201 +71,107 @@ The Universal Semantic Layer Application implements a comprehensive security fra
 
 ## Authentication
 
-### Multi-Factor Authentication (MFA)
+### Identity Provider Integration
 
-#### TOTP (Time-based One-Time Password)
+The Universal Semantic Layer delegates authentication to external identity providers, eliminating the need to manage user credentials directly.
+
+#### Keycloak Configuration (Development)
 
 ```yaml
-# application-security.yml
-mfa:
-  enabled: true
-  issuer: "Semantic Layer"
-  algorithm: "SHA1"
-  digits: 6
-  period: 30
-  enforce_for_roles:
-    - admin
-    - power_user
-  grace_period_days: 7
+# keycloak-realm-config.json
+{
+  "realm": "semantic-layer",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "semantic-layer-backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:8080/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "publicClient": false,
+      "secret": "${KEYCLOAK_CLIENT_SECRET}"
+    },
+    {
+      "clientId": "semantic-layer-frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "publicClient": true
+    }
+  ],
+  "roles": {
+    "realm": [
+      {"name": "admin"},
+      {"name": "data_steward"},
+      {"name": "analyst"},
+      {"name": "viewer"}
+    ]
+  }
+}
 ```
 
-#### Implementation Example
+#### Spring Security Configuration with Keycloak
 
 ```java
-@Service
-public class MfaService {
-    
-    @Autowired
-    private TotpGenerator totpGenerator;
-    
-    public String generateSecret() {
-        return totpGenerator.generate();
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
+    private String issuerUri;
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(authorize -> authorize
+                .requestMatchers("/api/v1/public/**").permitAll()
+                .requestMatchers("/api/v1/admin/**").hasRole("admin")
+                .anyRequest().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .jwtAuthenticationConverter(jwtAuthenticationConverter())
+                )
+            );
+        return http.build();
     }
-    
-    public boolean validateTotp(String secret, String code) {
-        String expectedCode = totpGenerator.generate(secret);
-        return constantTimeEquals(expectedCode, code);
-    }
-    
-    public QRCodeData generateQRCode(String username, String secret) {
-        String otpUrl = String.format(
-            "otpauth://totp/%s:%s?secret=%s&issuer=%s",
-            "Semantic Layer", username, secret, "Semantic Layer"
-        );
-        return qrCodeGenerator.generate(otpUrl);
+
+    @Bean
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
+        grantedAuthoritiesConverter.setAuthoritiesClaimName("realm_access.roles");
+        grantedAuthoritiesConverter.setAuthorityPrefix("ROLE_");
+
+        JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
+        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(grantedAuthoritiesConverter);
+        return jwtAuthenticationConverter;
     }
 }
 ```
 
-### Single Sign-On (SSO)
+#### Production Identity Providers
 
-#### SAML 2.0 Configuration
+For production environments, consider these enterprise identity providers:
 
-```xml
-<!-- saml-security-config.xml -->
-<beans xmlns="http://www.springframework.org/schema/beans"
-       xmlns:security="http://www.springframework.org/schema/security"
-       xmlns:saml="http://www.springframework.org/schema/security/saml2">
+1. **Auth0**
+   - Universal login
+   - Social identity providers
+   - Enterprise connections (AD, SAML)
+   - Advanced MFA options
 
-    <security:http pattern="/saml/**" security="none"/>
-    
-    <security:http auto-config="false" use-expressions="true">
-        <security:intercept-url pattern="/**" access="isAuthenticated()"/>
-        <security:custom-filter before="FIRST" ref="metadataGeneratorFilter"/>
-        <security:custom-filter after="BASIC_AUTH_FILTER" ref="samlFilter"/>
-    </security:http>
+2. **Okta**
+   - Enterprise SSO
+   - Lifecycle management
+   - Advanced security policies
+   - API access management
 
-    <bean id="saml2AuthenticationProvider" 
-          class="org.springframework.security.saml2.provider.service.authentication.OpenSamlAuthenticationProvider">
-        <property name="responseTimeValidationSkew" value="PT3M"/>
-        <property name="assertionValidator">
-            <bean class="org.springframework.security.saml2.provider.service.authentication.Saml2AuthenticationTokenValidator"/>
-        </property>
-    </bean>
-
-</beans>
-```
-
-#### OAuth 2.0 / OpenID Connect
-
-```yaml
-# OAuth configuration
-spring:
-  security:
-    oauth2:
-      client:
-        registration:
-          azure:
-            client-id: ${AZURE_CLIENT_ID}
-            client-secret: ${AZURE_CLIENT_SECRET}
-            scope: openid,profile,email
-            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
-        provider:
-          azure:
-            issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
-            user-name-attribute: preferred_username
-```
-
-### JWT Token Management
-
-#### Token Configuration
-
-```yaml
-jwt:
-  secret: ${JWT_SECRET}
-  expiration: 3600  # 1 hour
-  refresh-expiration: 86400  # 24 hours
-  algorithm: HS256
-  issuer: "semantic-layer"
-  audience: "semantic-layer-users"
-```
-
-#### Secure Token Implementation
-
-```java
-@Component
-public class JwtTokenProvider {
-    
-    private final String secret;
-    private final int expiration;
-    private final SignatureAlgorithm algorithm = SignatureAlgorithm.HS256;
-    
-    public String createToken(UserPrincipal userPrincipal) {
-        Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + expiration * 1000);
-        
-        return Jwts.builder()
-                .setSubject(userPrincipal.getUsername())
-                .setIssuedAt(now)
-                .setExpiration(expiryDate)
-                .setIssuer("semantic-layer")
-                .setAudience("semantic-layer-users")
-                .claim("roles", userPrincipal.getAuthorities())
-                .claim("userId", userPrincipal.getUserId())
-                .signWith(algorithm, secret)
-                .compact();
-    }
-    
-    public boolean validateToken(String token) {
-        try {
-            Jwts.parser()
-                .setSigningKey(secret)
-                .setRequireExpirationTime(true)
-                .setAllowedClockSkewSeconds(60)
-                .parseClaimsJws(token);
-            return true;
-        } catch (JwtException | IllegalArgumentException e) {
-            log.error("Invalid JWT token: {}", e.getMessage());
-            return false;
-        }
-    }
-}
-```
-
-### Password Security
-
-#### Password Policy Configuration
-
-```yaml
-password:
-  policy:
-    min_length: 12
-    max_length: 128
-    require_uppercase: true
-    require_lowercase: true
-    require_numbers: true
-    require_special_chars: true
-    special_chars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
-    prevent_common_passwords: true
-    prevent_username_in_password: true
-    history_count: 12  # Remember last 12 passwords
-    max_age_days: 90
-    lockout_attempts: 5
-    lockout_duration_minutes: 30
-```
-
-#### Password Hashing
-
-```java
-@Component
-public class PasswordEncoder {
-    
-    private final BCryptPasswordEncoder encoder;
-    
-    public PasswordEncoder() {
-        // Use cost factor of 12 for strong security
-        this.encoder = new BCryptPasswordEncoder(12);
-    }
-    
-    public String encode(String rawPassword) {
-        return encoder.encode(rawPassword);
-    }
-    
-    public boolean matches(String rawPassword, String encodedPassword) {
-        return encoder.matches(rawPassword, encodedPassword);
-    }
-}
-```
+3. **Azure Active Directory**
+   - Native Microsoft integration
+   - Conditional access policies
+   - B2B and B2C scenarios
+   - Seamless Office 365 integration
 
 ---
 
