@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: semantic_layer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+    command: start-dev
+    ports:
+      - "8180:8080"
+    depends_on:
+      - postgres
+
+  kong:
+    image: kong:3.4-alpine
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: postgres
+      KONG_PG_USER: postgres
+      KONG_PG_PASSWORD: postgres
+      KONG_PG_DATABASE: kong
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    depends_on:
+      - postgres
+      - kong-migration
+
+  kong-migration:
+    image: kong:3.4-alpine
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: postgres
+      KONG_PG_USER: postgres
+      KONG_PG_PASSWORD: postgres
+      KONG_PG_DATABASE: kong
+    command: kong migrations bootstrap
+    depends_on:
+      - postgres
+
+  semantic-layer:
+    image: alpine/git # Changed from 'build: .'
+    command: tail -f /dev/null # Keep container running
+    # Original build configuration commented out for now
+    # build: .
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/semantic_layer
+      REDIS_URL: redis://redis:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: semantic-layer
+      KEYCLOAK_CLIENT_ID: semantic-layer-backend
+      KONG_ADMIN_URL: http://kong:8001
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+      - keycloak
+      - kong
+
+volumes:
+  postgres_data:
+  redis_data:
